@@ -1,0 +1,387 @@
+{
+  "name": "1Nort — Kommo → Painel (GitHub Pages)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "cron-trigger",
+      "name": "1. Cron (1h)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -100,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "page",
+              "value": 1,
+              "type": "number"
+            },
+            {
+              "id": "a2",
+              "name": "acc",
+              "value": "[]",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "init-state",
+      "name": "2. Init (page=1)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        120,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://{{ $vars.KOMMO_SUBDOMAIN }}.kommo.com/api/v4/leads",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "with",
+              "value": "contacts"
+            },
+            {
+              "name": "limit",
+              "value": "250"
+            },
+            {
+              "name": "page",
+              "value": "={{ $json.page }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $vars.KOMMO_TOKEN }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "kommo-fetch",
+      "name": "3. Kommo — busca página",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        340,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Acumula os leads desta página e decide se há próxima.\n// A API v4 do Kommo devolve { _embedded: { leads: [...] }, _links: { next?: {} } }\nconst inState = $('2. Init (page=1)').first().json;\nconst prevAcc = JSON.parse($json.acc ?? inState.acc ?? '[]');\nconst body = $json;\nconst leads = body?._embedded?.leads ?? [];\nconst acc = prevAcc.concat(leads);\nconst hasNext = !!(body?._links && body._links.next);\nconst page = ($json.page ?? inState.page ?? 1);\nreturn [{ json: { acc: JSON.stringify(acc), page: page + 1, hasNext, count: acc.length } }];"
+      },
+      "id": "accumulate",
+      "name": "3b. Acumula + próxima?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.hasNext }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "has-next",
+      "name": "4. Tem próxima página?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        780,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "b1",
+              "name": "page",
+              "value": "={{ $json.page }}",
+              "type": "number"
+            },
+            {
+              "id": "b2",
+              "name": "acc",
+              "value": "={{ $json.acc }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "loop-back",
+      "name": "4a. Prepara próxima",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        780,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// NORMALIZAÇÃO — ajustada aos campos REAIS do Kommo (Energy Solar RJ)\n// Mapeia custom fields por NOME. Campos ausentes viram null (ok).\n// ============================================================\nconst raw = JSON.parse($json.acc);\n\nconst FIELD_MAP = {\n  'Origem': 'origin',\n  'Produto': 'product',\n  'Consumo [R$]': 'consumo',\n  'Local': 'local',\n  'Aumentar Consumo': 'aumentarConsumo',\n  'Telhado': 'telhado',\n  'Método de pagamento': 'payment',\n  'Tipo de cliente': 'clientType',\n  'Endereço': 'endereco',\n  'Consultor [Visita]': 'consultor',\n};\nconst DATE_MAP = {\n  'Agendamento [Proposta]': 'proposalAt',\n  'Agendamento [Visita]': 'visitAt',\n  'Data Resgate [Futuramente]': 'rescueAt',\n};\n// AJUSTE com os IDs reais (rode GET /api/v4/leads/pipelines):\nconst WON_STAGE_IDS = [142];\nconst LOST_STAGE_IDS = [143];\n\nconst iso = (u) => u ? new Date(u * 1000).toISOString() : null;\nfunction cf(lead, name) {\n  const f = (lead.custom_fields_values || []).find(x => x.field_name === name);\n  if (!f || !f.values || !f.values.length) return null;\n  return f.values[0].value ?? null;\n}\n\nconst out = raw.map((lead) => {\n  const fields = {};\n  for (const [n, k] of Object.entries(FIELD_MAP)) fields[k] = cf(lead, n);\n  const dates = {};\n  for (const [n, k] of Object.entries(DATE_MAP)) { const v = cf(lead, n); dates[k] = v ? iso(Number(v)) : null; }\n\n  let status = 'open';\n  if (WON_STAGE_IDS.includes(lead.status_id)) status = 'won';\n  else if (LOST_STAGE_IDS.includes(lead.status_id)) status = 'lost';\n  if (lead.closed_at && lead.price > 0 && status === 'open') status = 'won';\n\n  return {\n    id: lead.id,\n    name: (lead.name || ('Lead #' + lead.id)).trim(),\n    pipelineId: lead.pipeline_id,\n    stageId: lead.status_id,\n    status,\n    origin: fields.origin ?? null,\n    product: fields.product ?? null,\n    value: lead.price || null,\n    createdAt: iso(lead.created_at),\n    updatedAt: iso(lead.updated_at),\n    utmCampaign: cf(lead, 'utm_campaign') ?? null,\n    utmSource: cf(lead, 'utm_source') ?? null,\n    proposalAt: dates.proposalAt,\n    visitAt: dates.visitAt,\n    rescueAt: dates.rescueAt,\n    lossReason: lead.loss_reason_id ? String(lead.loss_reason_id) : null,\n    fields: {\n      consumo: fields.consumo,\n      local: fields.local,\n      telhado: fields.telhado,\n      payment: fields.payment,\n      clientType: fields.clientType,\n      endereco: fields.endereco,\n      consultor: fields.consultor,\n      aumentarConsumo: fields.aumentarConsumo,\n    },\n  };\n});\n\nconst jsonString = JSON.stringify(out);\nconst base64 = Buffer.from(jsonString, 'utf8').toString('base64');\nreturn [{ json: { totalLeads: out.length, base64, jsonString } }];"
+      },
+      "id": "normalize",
+      "name": "5. Normalizar → base64",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.github.com/repos/{{ $vars.GH_OWNER }}/{{ $vars.GH_REPO }}/contents/leads.json?ref={{ $vars.GH_BRANCH }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $vars.GH_TOKEN }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            },
+            {
+              "name": "User-Agent",
+              "value": "n8n-1nort"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "get-sha",
+      "name": "6. GitHub — sha atual",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1220,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// pega o sha do arquivo atual (necessário para atualizar).\n// se o arquivo ainda não existe (404), sha fica undefined e o PUT cria.\nconst sha = $json.sha; // presente quando o arquivo já existe\nconst base64 = $('5. Normalizar → base64').first().json.base64;\nconst total = $('5. Normalizar → base64').first().json.totalLeads;\nreturn [{ json: { sha: sha ?? null, base64, total } }];"
+      },
+      "id": "prep-put",
+      "name": "6b. Prepara commit",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://api.github.com/repos/{{ $vars.GH_OWNER }}/{{ $vars.GH_REPO }}/contents/leads.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $vars.GH_TOKEN }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            },
+            {
+              "name": "User-Agent",
+              "value": "n8n-1nort"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ message: 'chore: atualiza leads.json (' + $json.total + ' leads) via n8n', content: $json.base64, branch: $vars.GH_BRANCH, sha: $json.sha || undefined }) }}",
+        "options": {}
+      },
+      "id": "put-commit",
+      "name": "7. GitHub — commit",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1660,
+        200
+      ]
+    }
+  ],
+  "connections": {
+    "1. Cron (1h)": {
+      "main": [
+        [
+          {
+            "node": "2. Init (page=1)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "2. Init (page=1)": {
+      "main": [
+        [
+          {
+            "node": "3. Kommo — busca página",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3. Kommo — busca página": {
+      "main": [
+        [
+          {
+            "node": "3b. Acumula + próxima?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3b. Acumula + próxima?": {
+      "main": [
+        [
+          {
+            "node": "4. Tem próxima página?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4. Tem próxima página?": {
+      "main": [
+        [
+          {
+            "node": "4a. Prepara próxima",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "5. Normalizar → base64",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4a. Prepara próxima": {
+      "main": [
+        [
+          {
+            "node": "3. Kommo — busca página",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "5. Normalizar → base64": {
+      "main": [
+        [
+          {
+            "node": "6. GitHub — sha atual",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "6. GitHub — sha atual": {
+      "main": [
+        [
+          {
+            "node": "6b. Prepara commit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "6b. Prepara commit": {
+      "main": [
+        [
+          {
+            "node": "7. GitHub — commit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}
