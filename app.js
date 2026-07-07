@@ -26,6 +26,8 @@ export const LOST_STAGE = 143;
 export const PROPOSAL_STAGES = [91219187, 95677371, 91219199, 91219203, 91219207, 91219211, 142];
 // stages que representam "visita marcada/feita"
 export const VISIT_STAGES = [91219203, 91219207, 91219211, 142];
+// stages "Qualificado ou além" no Funil de vendas (a partir de Qualificado)
+export const QUALIFIED_STAGES = [91219183, 91219187, 91219191, 95677371, 91219199, 91219203, 91219207, 91219211, 142];
 export const ORIGINS = ["[Meta] Whatsapp", "Indicação", "[Meta] Cadastro", "Loja", "Sem origem"];
 export const PRODUCTS = ["Residencial", "Comercial", "Vendedor", "Sem produto"];
 export const WINDOW_LABELS = {
@@ -46,6 +48,8 @@ const isProposal = (l) =>
   !!l.proposalAt || l.status === "won" || PROPOSAL_STAGES.includes(l.stageId);
 // Visita: pelo custom field OU pelo stage
 const isVisit = (l) => !!l.visitAt || VISIT_STAGES.includes(l.stageId);
+// Qualificado: passou pelo stage Qualificado ou além
+const isQualified = (l) => l.status === "won" || QUALIFIED_STAGES.includes(l.stageId);
 
 export function applyFilter(leads, f) {
   return leads.filter((l) => {
@@ -70,6 +74,7 @@ export function computeKpis(scope, prev) {
   const won = scope.filter((l) => l.status === "won");
   const lost = scope.filter((l) => l.status === "lost");
   const visits = scope.filter(isVisit).length;
+  const qualified = scope.filter(isQualified).length;
   const rate = (a, b) => (b ? (a / b) * 100 : 0);
   const cycles = won.map((l) => days(l.createdAt, l.updatedAt));
   const avgCycle = cycles.length ? Math.round(cycles.reduce((a, b) => a + b, 0) / cycles.length) : 0;
@@ -85,8 +90,9 @@ export function computeKpis(scope, prev) {
 
   return {
     leads, openCount: scope.filter((l) => l.status === "open").length,
-    proposals, visits, wonCount: won.length, lostCount: lost.length,
+    proposals, visits, qualified, wonCount: won.length, lostCount: lost.length,
     orcRate: rate(proposals, leads), visitRate: rate(visits, leads),
+    qualRate: rate(qualified, leads),
     closeRate: rate(won.length, leads), avgCycle, wonValue,
     wonTicket: won.length ? Math.round(wonValue / won.length) : 0,
     openValue, openTicket: openWithValue.length ? Math.round(openValue / openWithValue.length) : 0,
@@ -124,13 +130,14 @@ export function revenueByMonth(all, win) {
 export function evolutionByMonth(all, win) {
   const keys = monthKeys(win);
   const idx = (k) => keys.findIndex((m) => m.slice(0, 7) === k.slice(0, 7));
-  const leads = keys.map(() => 0), props = keys.map(() => 0), closes = keys.map(() => 0);
+  const leads = keys.map(() => 0), quals = keys.map(() => 0), props = keys.map(() => 0), closes = keys.map(() => 0);
   all.forEach((l) => {
     let i = idx(l.createdAt); if (i >= 0) leads[i]++;
+    if (isQualified(l)) { i = idx(l.createdAt); if (i >= 0) quals[i]++; }
     if (isProposal(l)) { i = idx(l.proposalAt ?? l.createdAt); if (i >= 0) props[i]++; }
     if (l.status === "won") { i = idx(l.updatedAt); if (i >= 0) closes[i]++; }
   });
-  return { months: keys, leads, proposals: props, closes };
+  return { months: keys, leads, qualified: quals, proposals: props, closes };
 }
 
 export function forecast(all, origin) {
@@ -208,6 +215,53 @@ export function pipelineSummary(scope) {
       close: ls.length ? (won / ls.length) * 100 : 0,
       closeProp: proposals ? (won / proposals) * 100 : 0 };
   });
+}
+
+// Ranking por consultor: vendas, propostas apresentadas, R$
+export function byConsultant(scope) {
+  const map = new Map();
+  scope.forEach((l) => {
+    const c = l.consultor || "Sem consultor";
+    if (!map.has(c)) map.set(c, { name: c, sales: 0, proposals: 0, revenue: 0 });
+    const row = map.get(c);
+    if (l.status === "won") { row.sales++; row.revenue += l.value ?? 0; }
+    if (isProposal(l)) row.proposals++;
+  });
+  const rows = [...map.values()].filter((r) => r.name !== "Sem consultor" || r.sales || r.proposals);
+  return {
+    bySales: [...rows].sort((a, b) => b.sales - a.sales),
+    byProposals: [...rows].sort((a, b) => b.proposals - a.proposals),
+    byRevenue: [...rows].sort((a, b) => b.revenue - a.revenue),
+  };
+}
+
+// Motivo das perdas
+export function lossReasons(scope) {
+  const lost = scope.filter((l) => l.status === "lost");
+  const map = new Map();
+  lost.forEach((l) => {
+    const r = l.lossReason || "Sem motivo";
+    map.set(r, (map.get(r) ?? 0) + 1);
+  });
+  const items = [...map.entries()]
+    .map(([motivo, leads]) => ({ motivo, leads }))
+    .sort((a, b) => b.leads - a.leads);
+  return { items, total: lost.length };
+}
+
+// Geografia: onde estão os clientes (campo Local)
+export function geography(scope, limit = 12) {
+  const map = new Map();
+  let filled = 0;
+  scope.forEach((l) => {
+    const loc = (l.fields?.local || "").trim();
+    if (loc) { filled++; map.set(loc, (map.get(loc) ?? 0) + 1); }
+  });
+  const rows = [...map.entries()]
+    .map(([label, n]) => ({ label, n }))
+    .sort((a, b) => b.n - a.n)
+    .slice(0, limit);
+  return { rows, filled, distinct: map.size };
 }
 
 export { pipeById };

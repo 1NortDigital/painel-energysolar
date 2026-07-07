@@ -76,6 +76,7 @@ a { color: inherit; }
 
 /* métricas */
 .metrics-grid { display: grid; gap: 12px; grid-template-columns: repeat(5, 1fr); }
+.metrics-grid--six { grid-template-columns: repeat(6, 1fr); }
 .metric-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; display: flex; flex-direction: column; gap: 6px; position: relative; overflow: hidden; }
 .metric-card::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: var(--amber); opacity: .9; }
 .metric-card--teal::before { background: var(--teal); }
@@ -245,6 +246,41 @@ a { color: inherit; }
 .demo-banner { background: var(--amber-soft); border: 1px solid rgba(255,184,0,.25); color: var(--amber); font-size: 12px; padding: 8px 14px; border-radius: var(--radius-sm); }
 
 @media (max-width: 900px) {
-  .metrics-grid, .pillar-grid { grid-template-columns: repeat(2, 1fr); }
+  .metrics-grid, .metrics-grid--six, .pillar-grid { grid-template-columns: repeat(2, 1fr); }
   .two-col, .two-col--wide, .profile-grid, .value-strip { grid-template-columns: 1fr; }
 }
+
+/* seletor de período */
+.period { display: flex; flex-direction: column; gap: 8px; }
+.period__chips { display: flex; gap: 4px; flex-wrap: wrap; }
+.period__custom { display: flex; align-items: center; gap: 6px; }
+.period__date { background: var(--panel-2); border: 1px solid var(--line-strong); color: var(--ink); border-radius: var(--radius-sm); padding: 7px 10px; font-size: 12.5px; font-family: var(--font-body); color-scheme: dark; }
+.period__date:focus { outline: none; border-color: var(--amber); }
+.period__sep { color: var(--muted-2); font-size: 13px; }
+
+/* tooltip do gráfico de linha */
+.linechart__plot { position: relative; }
+.lc-hit { cursor: crosshair; }
+.lc-hit:hover { fill: rgba(255,255,255,0.03); }
+.lc-dot { transition: r 0.12s; pointer-events: none; }
+.lc-tip { position: absolute; z-index: 30; background: var(--panel-2); border: 1px solid var(--line-strong); border-radius: 8px; padding: 8px 11px; font-size: 12px; line-height: 1.7; color: var(--ink); box-shadow: var(--shadow); pointer-events: none; white-space: nowrap; }
+.lc-tip__h { font-family: var(--font-display); font-size: 12px; color: var(--muted); margin-bottom: 3px; text-transform: capitalize; }
+.lc-tip b { font-family: var(--font-display); }
+
+/* rankings por consultor + geografia */
+.three-col { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+.rank-block__title { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted-2); margin: 0 0 10px; font-weight: 600; font-family: var(--font-body); }
+.hbars { display: flex; flex-direction: column; gap: 7px; }
+.hbar { display: grid; grid-template-columns: 110px 1fr auto; gap: 10px; align-items: center; }
+.hbar__label { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hbar__val { font-size: 12px; font-weight: 600; font-family: var(--font-display); text-align: right; min-width: 40px; }
+.empty-hint { font-size: 12.5px; color: var(--muted-2); padding: 12px 0; }
+@media (max-width: 900px) {
+  .three-col { grid-template-columns: 1fr; }
+}
+
+/* hover feedback em donut e barras */
+.donut-seg { cursor: pointer; transition: opacity 0.15s; }
+.loss-donut svg:hover .donut-seg { opacity: 0.45; }
+.loss-donut svg .donut-seg:hover { opacity: 1; }
+.hbar, .distro__row { cursor: default; }

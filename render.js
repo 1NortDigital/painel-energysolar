@@ -5,6 +5,7 @@ import {
   CLIENT, PIPELINES, ORIGINS, PRODUCTS, WINDOW_LABELS, PROFILE_FIELDS,
   applyFilter, previousRange, computeKpis, revenueByMonth, evolutionByMonth,
   forecast, heatmap, stagnation, distribution, campaigns, pipelineSummary,
+  byConsultant, lossReasons, geography,
 } from "./app.js";
 
 const brl = (n) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
@@ -14,8 +15,19 @@ const DAYS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 const PAGE_SIZE = 25;
 
 let LEADS = [];
+function monthStart() {
+  const d = new Date();
+  return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10);
+}
+function todayISO() {
+  return new Date().toISOString().slice(0, 10);
+}
+function daysAgoISO(n) {
+  return new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
+}
+
 const state = {
-  from: "2026-02-01", to: "2026-07-02",
+  from: monthStart(), to: todayISO(), datePreset: "month",
   pipeline: [], origin: [], product: [],
   mw: "6m", ew: "6m", fo: "all", rf: "Pré-Qualificação",
   leStatus: "all", leSearch: "", lePage: 1,
@@ -41,6 +53,7 @@ function lineChart(months, series, opts = {}) {
   const fmtM = (iso) => new Date(iso).toLocaleDateString("pt-BR", { month: "short", year: "2-digit" }).replace(".", "");
   const grid = [0, .25, .5, .75, 1];
   const avg = opts.avgLine ? series[0].values.reduce((a, b) => a + b, 0) / series[0].values.length : 0;
+  const uid = "lc" + Math.random().toString(36).slice(2, 8);
   let svg = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">`;
   grid.forEach((f) => {
     const yy = PT + plotH * f;
@@ -52,7 +65,22 @@ function lineChart(months, series, opts = {}) {
     const path = s.values.map((v, i) => `${i ? "L" : "M"} ${x(i)} ${y(v)}`).join(" ");
     if (opts.area) svg += `<path d="${path} L ${x(s.values.length - 1)} ${PT + plotH} L ${x(0)} ${PT + plotH} Z" fill="${s.color}" fill-opacity="0.13"/>`;
     svg += `<path d="${path}" fill="none" stroke="${s.color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>`;
-    s.values.forEach((v, i) => { svg += `<circle cx="${x(i)}" cy="${y(v)}" r="3.5" fill="#1b1e22" stroke="${s.color}" stroke-width="2"/>`; });
+  });
+  // hover: uma coluna invisível por mês que captura o mouse e mostra todos os valores
+  months.forEach((m, i) => {
+    const colX = x(i) - plotW / (months.length * 2);
+    const colW = plotW / months.length;
+    const rows = series.map((s) =>
+      `<span style='color:${s.color}'>●</span> ${s.name}: <b>${fmt(s.values[i])}</b>`
+    ).join("<br>");
+    svg += `<rect class="lc-hit" data-tip="${encodeURIComponent(`<div class='lc-tip__h'>${fmtM(m)}</div>${rows}`)}" data-x="${x(i)}" x="${colX}" y="${PT}" width="${colW}" height="${plotH}" fill="transparent"/>`;
+    // linha vertical guia (aparece no hover via css sibling)
+  });
+  // bolinhas por cima (com hover visual)
+  series.forEach((s) => {
+    s.values.forEach((v, i) => {
+      svg += `<circle class="lc-dot" cx="${x(i)}" cy="${y(v)}" r="3.5" fill="#1b1e22" stroke="${s.color}" stroke-width="2"/>`;
+    });
   });
   if (opts.avgLine) {
     svg += `<line x1="${PL}" y1="${y(avg)}" x2="${W - PR}" y2="${y(avg)}" class="avg-line"/>`;
@@ -60,7 +88,32 @@ function lineChart(months, series, opts = {}) {
   }
   svg += `</svg>`;
   const legend = series.map((s) => `<span class="linechart__legend-item"><i style="background:${s.color}"></i>${s.name}</span>`).join("");
-  return `<div class="linechart"><div class="linechart__legend">${legend}</div>${svg}</div>`;
+  return `<div class="linechart" id="${uid}"><div class="linechart__legend">${legend}</div><div class="linechart__plot">${svg}<div class="lc-tip" hidden></div></div></div>`;
+}
+
+// ativa tooltips dos gráficos (chamado após render)
+function wireChartTooltips() {
+  document.querySelectorAll(".linechart__plot").forEach((plot) => {
+    const tip = plot.querySelector(".lc-tip");
+    if (!tip) return;
+    plot.querySelectorAll(".lc-hit").forEach((hit) => {
+      hit.addEventListener("mouseenter", () => {
+        tip.innerHTML = decodeURIComponent(hit.getAttribute("data-tip"));
+        tip.hidden = false;
+      });
+      hit.addEventListener("mousemove", (e) => {
+        const rect = plot.getBoundingClientRect();
+        let px = e.clientX - rect.left;
+        const ty = e.clientY - rect.top;
+        // mantém o tooltip dentro do plot
+        const tw = tip.offsetWidth || 140;
+        px = Math.min(Math.max(px + 14, 4), rect.width - tw - 4);
+        tip.style.left = px + "px";
+        tip.style.top = Math.max(ty - 10, 4) + "px";
+      });
+      hit.addEventListener("mouseleave", () => { tip.hidden = true; });
+    });
+  });
 }
 
 function donut(items, total, unit) {
@@ -68,7 +121,8 @@ function donut(items, total, unit) {
   let off = 0, segs = "";
   items.forEach((it, i) => {
     const frac = total ? it.leads / total : 0, col = it.color ?? palette[i % palette.length];
-    segs += `<circle cx="84" cy="84" r="${R}" fill="none" stroke="${col}" stroke-width="26" stroke-dasharray="${frac * C} ${C - frac * C}" stroke-dashoffset="${-off * C}"/>`;
+    const p = total ? ((it.leads / total) * 100).toFixed(1) : 0;
+    segs += `<circle class="donut-seg" cx="84" cy="84" r="${R}" fill="none" stroke="${col}" stroke-width="26" stroke-dasharray="${frac * C} ${C - frac * C}" stroke-dashoffset="${-off * C}"><title>${it.motivo}: ${it.leads} (${p}%)</title></circle>`;
     off += frac;
   });
   const legend = items.map((it, i) => `<li><span class="loss-legend__dot" style="background:${it.color ?? palette[i % palette.length]}"></span><span>${it.motivo}</span><span class="loss-legend__val">${it.leads} <small>${total ? ((it.leads / total) * 100).toFixed(1) : 0}%</small></span></li>`).join("");
@@ -120,6 +174,50 @@ function selectEl(options, value, param, allLabel) {
   return s;
 }
 
+// Seletor de período: presets rápidos + campos De/Até customizados
+function datePeriodControl() {
+  const wrap = el("div", "period");
+  const presets = [
+    { k: "today", label: "Hoje", from: () => todayISO(), to: () => todayISO() },
+    { k: "7d", label: "7 dias", from: () => daysAgoISO(6), to: () => todayISO() },
+    { k: "30d", label: "30 dias", from: () => daysAgoISO(29), to: () => todayISO() },
+    { k: "month", label: "Este mês", from: () => monthStart(), to: () => todayISO() },
+    { k: "all", label: "Tudo", from: () => "2000-01-01", to: () => todayISO() },
+  ];
+
+  const chips = el("div", "period__chips");
+  presets.forEach((p) => {
+    const b = el("button", `winchip ${state.datePreset === p.k ? "winchip--active" : ""}`, p.label);
+    b.addEventListener("click", () => set({ datePreset: p.k, from: p.from(), to: p.to() }));
+    chips.appendChild(b);
+  });
+  wrap.appendChild(chips);
+
+  // campos De / Até
+  const custom = el("div", "period__custom");
+  const fromInput = el("input", "period__date");
+  fromInput.type = "date"; fromInput.value = state.from;
+  fromInput.addEventListener("change", (e) => set({ from: e.target.value, datePreset: "custom" }));
+  const sep = el("span", "period__sep", "→");
+  const toInput = el("input", "period__date");
+  toInput.type = "date"; toInput.value = state.to;
+  toInput.addEventListener("change", (e) => set({ to: e.target.value, datePreset: "custom" }));
+  custom.appendChild(fromInput); custom.appendChild(sep); custom.appendChild(toInput);
+  wrap.appendChild(custom);
+
+  return wrap;
+}
+
+// barras horizontais reutilizável (ranking)
+function hbars(rows, opts = {}) {
+  const { valueKey = "n", labelKey = "label", format = (v) => v, color = "amber", max: maxOverride } = opts;
+  const max = maxOverride ?? Math.max(1, ...rows.map((r) => r[valueKey]));
+  if (!rows.length) return `<p class="empty-hint">Sem dados no período.</p>`;
+  return `<div class="hbars">` + rows.map((r) =>
+    `<div class="hbar" title="${r[labelKey]}: ${format(r[valueKey])}"><span class="hbar__label" title="${r[labelKey]}">${r[labelKey]}</span><div class="track"><div class="bar bar--${color}" style="width:${(r[valueKey] / max) * 100}%"></div></div><span class="hbar__val">${format(r[valueKey])}</span></div>`
+  ).join("") + `</div>`;
+}
+
 const delta = (v, unit) => {
   const cls = v === 0 ? "delta--flat" : v > 0 ? "delta--up" : "delta--down";
   const arrow = v === 0 ? "→" : v > 0 ? "▲" : "▼";
@@ -142,7 +240,9 @@ function render() {
   const hm = heatmap(scope);
   const stag = stagnation(LEADS, f.rf);
   const camps = campaigns(scope);
-  const pipes = pipelineSummary(scope);
+  const consult = byConsultant(scope);
+  const losses = lossReasons(scope);
+  const geo = geography(scope);
 
   const shell = el("main", "page-shell");
 
@@ -164,13 +264,12 @@ function render() {
       <div><span>Fechamento</span><strong>${pct(k.closeRate)}</strong></div>
     </div>`));
 
-  shell.appendChild(el("div", "demo-banner", "⚡ Dados de demonstração — pronto para plugar a exportação real do Kommo (veja README)."));
-
   // filtros
   const filters = el("div", "filters");
   const addFilter = (labelText, control) => {
     const lab = el("label"); lab.appendChild(el("span", null, labelText)); lab.appendChild(control); filters.appendChild(lab);
   };
+  addFilter("Período", datePeriodControl());
   addFilter("Pipeline", multiSelect("pipeline", "Todos", PIPELINES.map((p) => ({ value: p.id, label: p.label }))));
   addFilter("Origem", multiSelect("origin", "Todas", ORIGINS.map((o) => ({ value: o, label: o }))));
   addFilter("Produto", multiSelect("product", "Todos", PRODUCTS.map((p) => ({ value: p, label: p }))));
@@ -178,9 +277,10 @@ function render() {
   shell.appendChild(el("p", "compare-note", `Variações comparadas ao período anterior de mesmo tamanho (${pr.from} a ${pr.to}).`));
 
   // KPIs
-  shell.appendChild(el("section", "metrics-grid", `
-    <article class="metric-card"><span class="metric-card__label">Leads no recorte</span><strong class="metric-card__value">${k.leads}</strong><span class="metric-card__helper">${delta(k.delta.leads, "pct")} ${k.openCount} abertos</span></article>
-    <article class="metric-card metric-card--teal"><span class="metric-card__label">Geração de orçamento</span><strong class="metric-card__value">${pct(k.orcRate)}</strong><span class="metric-card__helper">${delta(k.delta.orc, "pp")} ${k.proposals} propostas</span></article>
+  shell.appendChild(el("section", "metrics-grid metrics-grid--six", `
+    <article class="metric-card"><span class="metric-card__label">Leads</span><strong class="metric-card__value">${k.leads}</strong><span class="metric-card__helper">${delta(k.delta.leads, "pct")} ${k.openCount} abertos</span></article>
+    <article class="metric-card metric-card--teal"><span class="metric-card__label">Leads qualificados</span><strong class="metric-card__value">${pct(k.qualRate)}</strong><span class="metric-card__helper">${k.qualified} qualificados</span></article>
+    <article class="metric-card metric-card--teal"><span class="metric-card__label">Orçamentos enviados</span><strong class="metric-card__value">${pct(k.orcRate)}</strong><span class="metric-card__helper">${delta(k.delta.orc, "pp")} ${k.proposals} propostas</span></article>
     <article class="metric-card"><span class="metric-card__label">Taxa de visita</span><strong class="metric-card__value">${pct(k.visitRate)}</strong><span class="metric-card__helper">${delta(k.delta.visit, "pp")} ${k.visits} visitas</span></article>
     <article class="metric-card metric-card--blue"><span class="metric-card__label">Taxa de fechamento</span><strong class="metric-card__value">${pct(k.closeRate)}</strong><span class="metric-card__helper">${delta(k.delta.close, "pp")} ${k.wonCount} ganhos</span></article>
     <article class="metric-card metric-card--rose"><span class="metric-card__label">Ciclo médio (ganho)</span><strong class="metric-card__value">${k.avgCycle} dias</strong><span class="metric-card__helper">Entrada → ganho • ${k.wonCount} fechados</span></article>`));
@@ -207,6 +307,7 @@ function render() {
   evoPanel.appendChild(evoHead);
   evoPanel.insertAdjacentHTML("beforeend", lineChart(evo.months, [
     { name: "Leads", color: "#f5a623", values: evo.leads },
+    { name: "Qualificados", color: "#bb8fff", values: evo.qualified },
     { name: "Propostas", color: "#2fd3c0", values: evo.proposals },
     { name: "Fechamentos", color: "#5b9dff", values: evo.closes },
   ]));
@@ -243,18 +344,37 @@ function render() {
     const d = distribution(scope, key);
     const barCls = ["amber", "teal", "blue", "red"][ki];
     const maxN = d.rows[0]?.n ?? 1;
-    const rows = d.rows.slice(0, 5).map((r) => `<div class="distro__row"><span class="distro__label" title="${r.label}">${r.label}</span><div class="track"><div class="bar bar--${barCls}" style="width:${(r.n / maxN) * 100}%"></div></div><span class="distro__val">${r.n} <small>${d.filled ? ((r.n / d.filled) * 100).toFixed(0) : 0}%</small></span></div>`).join("");
+    const rows = d.rows.slice(0, 5).map((r) => `<div class="distro__row" title="${r.label}: ${r.n} (${d.filled ? ((r.n / d.filled) * 100).toFixed(0) : 0}%)"><span class="distro__label" title="${r.label}">${r.label}</span><div class="track"><div class="bar bar--${barCls}" style="width:${(r.n / maxN) * 100}%"></div></div><span class="distro__val">${r.n} <small>${d.filled ? ((r.n / d.filled) * 100).toFixed(0) : 0}%</small></span></div>`).join("");
     pgrid.insertAdjacentHTML("beforeend", `<article class="distro"><div class="distro__head"><strong>${PROFILE_FIELDS[key]}</strong><span>${d.pctFilled.toFixed(1)}% preenchido</span></div><div>${rows}</div></article>`);
   });
   profPanel.appendChild(pgrid);
   shell.appendChild(profPanel);
 
   // pipelines
-  const pipePanel = el("section", "panel", `<div class="panel__header"><div><p class="eyebrow">Pipelines</p><h2>Visão geral dos funis</h2></div></div>`);
-  const pgrid2 = el("div", "pillar-grid");
-  pgrid2.innerHTML = pipes.map((s) => `<article class="pillar-card"><div class="pillar-card__top"><strong>${s.p.label}</strong>${s.p.isPrimary ? '<span class="pillar-card__tag">principal</span>' : ""}</div><div class="pillar-card__lead"><strong>${s.leads}</strong><span>leads</span></div><div class="pillar-card__rates"><div><span>Geração de orçamento</span><strong>${pct(s.orc)}</strong><small>${s.proposals} propostas</small></div><div><span>Fechamento / leads</span><strong>${pct(s.close)}</strong><small>${s.won} ganhos</small></div></div><div class="pillar-card__foot"><span>Fech. / proposta</span><strong>${pct(s.closeProp)}</strong></div></article>`).join("");
-  pipePanel.appendChild(pgrid2);
-  shell.appendChild(pipePanel);
+  // consultores — 3 rankings
+  const consPanel = el("section", "panel", `<div class="panel__header"><div><p class="eyebrow">Time comercial</p><h2>Desempenho por consultor</h2></div><p class="panel__hint">Ranking do consultor responsável por cada lead.</p></div>`);
+  const consGrid = el("div", "three-col");
+  consGrid.innerHTML = `
+    <div class="rank-block"><h3 class="rank-block__title">Vendas</h3>${hbars(consult.bySales.slice(0, 8), { valueKey: "sales", labelKey: "name", color: "amber" })}</div>
+    <div class="rank-block"><h3 class="rank-block__title">Propostas apresentadas</h3>${hbars(consult.byProposals.slice(0, 8), { valueKey: "proposals", labelKey: "name", color: "teal" })}</div>
+    <div class="rank-block"><h3 class="rank-block__title">Vendas em R$</h3>${hbars(consult.byRevenue.slice(0, 8), { valueKey: "revenue", labelKey: "name", color: "blue", format: (v) => brl(v) })}</div>`;
+  consPanel.appendChild(consGrid);
+  shell.appendChild(consPanel);
+
+  // motivos das perdas + geografia lado a lado
+  const lossGeoRow = el("section", "two-col");
+  const lossPanel = el("article", "panel", `<div class="panel__header"><div><p class="eyebrow">Perdas</p><h2>Motivo das perdas</h2></div></div>`);
+  if (losses.total) {
+    lossPanel.insertAdjacentHTML("beforeend", donut(losses.items.slice(0, 6), losses.total, "perdas"));
+  } else {
+    lossPanel.insertAdjacentHTML("beforeend", `<p class="empty-hint">Nenhuma perda registrada no período.</p>`);
+  }
+  lossGeoRow.appendChild(lossPanel);
+
+  const geoPanel = el("article", "panel", `<div class="panel__header"><div><p class="eyebrow">Geografia</p><h2>Onde estão os clientes</h2></div><p class="panel__hint">${geo.distinct} localidades distintas.</p></div>`);
+  geoPanel.insertAdjacentHTML("beforeend", hbars(geo.rows, { valueKey: "n", labelKey: "label", color: "amber" }));
+  lossGeoRow.appendChild(geoPanel);
+  shell.appendChild(lossGeoRow);
 
   // heatmap
   const hmPanel = el("section", "panel", `<div class="panel__header"><div><p class="eyebrow">Atendimento</p><h2>Quando os leads chegam</h2></div><p class="panel__hint">Dia × hora. Mais escuro = mais leads. Orienta a escala.</p></div>`);
@@ -328,4 +448,5 @@ function render() {
   shell.appendChild(el("div", "foot", `<b>1</b><i>Nort</i> Digital • Tecnologia & Inteligência • Painel gerado a partir do Kommo`));
 
   root.appendChild(shell);
+  wireChartTooltips();
 }
