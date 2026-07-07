@@ -26,6 +26,15 @@ function todayISO() {
 function daysAgoISO(n) {
   return new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
 }
+function lastMonthStart() {
+  const d = new Date();
+  return new Date(d.getFullYear(), d.getMonth() - 1, 1).toISOString().slice(0, 10);
+}
+function lastMonthEnd() {
+  const d = new Date();
+  // dia 0 do mês atual = último dia do mês anterior
+  return new Date(d.getFullYear(), d.getMonth(), 0).toISOString().slice(0, 10);
+}
 
 const state = {
   from: monthStart(), to: todayISO(), datePreset: "month", tab: "resultado",
@@ -49,6 +58,79 @@ export async function boot() {
 function set(patch) { Object.assign(state, patch); render(); }
 
 // ---------- charts ----------
+// Gráfico de barras (melhor que linha para valores "lumpy" como faturamento)
+function barChart(months, values, opts = {}) {
+  const W = 760, H = 280, PL = 56, PR = 18, PT = 22, PB = 46;
+  const rawMax = Math.max(1, ...values);
+  // escala com folga de 15% no topo para a barra não encostar
+  const max = rawMax * 1.15;
+  const plotW = W - PL - PR, plotH = H - PT - PB;
+  const n = months.length;
+  const gap = plotW / n * 0.32;
+  const bw = plotW / n - gap;
+  const x = (i) => PL + (plotW * i) / n + gap / 2;
+  const y = (v) => PT + plotH - (plotH * v) / max;
+  const fmtFull = (v) => "R$ " + v.toLocaleString("pt-BR");
+  const fmtShort = (v) => v >= 1000 ? `R$ ${(v / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 0 })}k` : `R$ ${v}`;
+  const fmtM = (iso) => new Date(iso).toLocaleDateString("pt-BR", { month: "short", year: "2-digit" }).replace(".", "");
+  const grid = [0, .25, .5, .75, 1];
+  const avg = values.reduce((a, b) => a + b, 0) / (values.length || 1);
+
+  let svg = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">`;
+  // grid + eixo Y
+  grid.forEach((f) => {
+    const yy = PT + plotH * f;
+    svg += `<line x1="${PL}" y1="${yy}" x2="${W - PR}" y2="${yy}" class="grid-line"/>`;
+    svg += `<text x="${PL - 10}" y="${yy + 4}" class="axis-label" text-anchor="end">${fmtShort(Math.round(max * (1 - f)))}</text>`;
+  });
+  // barras
+  values.forEach((v, i) => {
+    const bx = x(i), by = y(v), bh = PT + plotH - by;
+    const isMax = v === rawMax && v > 0;
+    const label = `${fmtM(months[i])}: ${fmtFull(v)}`;
+    svg += `<g class="bc-bar" data-tip="${encodeURIComponent(label)}" data-cx="${bx + bw / 2}">`;
+    // barra com cantos superiores arredondados (via rect + rx pequeno)
+    svg += `<rect x="${bx}" y="${by}" width="${bw}" height="${Math.max(bh, 0)}" rx="3" fill="${isMax ? "#ffc93a" : "#ffb800"}" class="bc-rect"/>`;
+    // área de hover cobrindo a coluna inteira (facilita passar o mouse)
+    svg += `<rect x="${bx}" y="${PT}" width="${bw}" height="${plotH}" fill="transparent" class="bc-hit"/>`;
+    svg += `</g>`;
+    // rótulo do mês
+    svg += `<text x="${bx + bw / 2}" y="${H - 14}" class="axis-label" text-anchor="middle">${fmtM(months[i])}</text>`;
+  });
+  // linha de média
+  if (opts.avgLine && avg > 0) {
+    const ay = y(avg);
+    svg += `<line x1="${PL}" y1="${ay}" x2="${W - PR}" y2="${ay}" class="avg-line"/>`;
+    svg += `<text x="${W - PR}" y="${ay - 6}" class="avg-label" text-anchor="end">média ${fmtShort(Math.round(avg))}</text>`;
+  }
+  svg += `</svg>`;
+  return `<div class="linechart"><div class="linechart__plot linechart__plot--bars">${svg}<div class="lc-tip" hidden></div></div></div>`;
+}
+
+// ativa tooltip das barras
+function wireBarTooltips() {
+  document.querySelectorAll(".linechart__plot--bars").forEach((plot) => {
+    const tip = plot.querySelector(".lc-tip");
+    if (!tip) return;
+    plot.querySelectorAll(".bc-bar").forEach((bar) => {
+      const show = () => {
+        tip.innerHTML = decodeURIComponent(bar.getAttribute("data-tip"));
+        tip.hidden = false;
+      };
+      bar.addEventListener("mouseenter", show);
+      bar.addEventListener("mousemove", (e) => {
+        const rect = plot.getBoundingClientRect();
+        let px = e.clientX - rect.left;
+        const tw = tip.offsetWidth || 130;
+        px = Math.min(Math.max(px + 12, 4), rect.width - tw - 4);
+        tip.style.left = px + "px";
+        tip.style.top = "10px";
+      });
+      bar.addEventListener("mouseleave", () => { tip.hidden = true; });
+    });
+  });
+}
+
 function lineChart(months, series, opts = {}) {
   const W = 760, H = 280, PL = 52, PR = 18, PT = 20, PB = 50;
   const max = Math.max(1, ...series.flatMap((s) => s.values));
@@ -186,7 +268,7 @@ function datePeriodControl() {
   const presets = [
     { k: "today", label: "Hoje", from: () => todayISO(), to: () => todayISO() },
     { k: "7d", label: "7 dias", from: () => daysAgoISO(6), to: () => todayISO() },
-    { k: "30d", label: "30 dias", from: () => daysAgoISO(29), to: () => todayISO() },
+    { k: "lastmonth", label: "Mês passado", from: () => lastMonthStart(), to: () => lastMonthEnd() },
     { k: "month", label: "Este mês", from: () => monthStart(), to: () => todayISO() },
     { k: "all", label: "Tudo", from: () => "2000-01-01", to: () => todayISO() },
   ];
@@ -263,7 +345,7 @@ function funnelPanel(fn) {
   </section>`;
 }
 function periodLabel() {
-  const map = { today: "hoje", "7d": "últimos 7 dias", "30d": "últimos 30 dias", month: "neste mês", all: "todo período", custom: "período personalizado" };
+  const map = { today: "hoje", "7d": "últimos 7 dias", lastmonth: "mês passado", month: "neste mês", all: "todo período", custom: "período personalizado" };
   return map[state.datePreset] || "período";
 }
 
@@ -298,7 +380,9 @@ function render() {
   // topbar
   shell.appendChild(el("div", "topbar", `
     <div class="brand">
-      <span class="brand__mark"><b>1</b><i>N</i></span>
+      <span class="brand__mark">
+        <img src="./logo-1nort.png" alt="1Nort" width="34" height="34" />
+      </span>
       <span class="brand__divider"></span>
       <span class="brand__client"><span>Cliente</span><strong>${CLIENT.name}</strong></span>
     </div>
@@ -306,7 +390,7 @@ function render() {
 
   // hero
   shell.appendChild(el("section", "hero", `
-    <div><p class="eyebrow">${CLIENT.eyebrow}</p><h1>${CLIENT.name}</h1><p class="hero__copy">${CLIENT.subtitle}</p></div>
+    <div>${CLIENT.eyebrow ? `<p class="eyebrow">${CLIENT.eyebrow}</p>` : ""}<h1>${CLIENT.name}</h1>${CLIENT.subtitle ? `<p class="hero__copy">${CLIENT.subtitle}</p>` : ""}</div>
     <div class="hero__meta">
       <div><span>Leads no período</span><strong>${k.leads}</strong></div>
       <div><span>Receita ganha</span><strong>${brl(k.wonValue)}</strong></div>
@@ -316,9 +400,9 @@ function render() {
   // filtros
   const filters = el("div", "filters");
   const addFilter = (labelText, control) => {
-    const lab = el("label"); lab.appendChild(el("span", null, labelText)); lab.appendChild(control); filters.appendChild(lab);
+    const lab = el("label"); if (labelText) lab.appendChild(el("span", null, labelText)); lab.appendChild(control); filters.appendChild(lab);
   };
-  addFilter("Período", datePeriodControl());
+  addFilter("", datePeriodControl());
   addFilter("Pipeline", multiSelect("pipeline", "Todos", PIPELINES.map((p) => ({ value: p.id, label: p.label }))));
   addFilter("Origem", multiSelect("origin", "Todas", ORIGINS.map((o) => ({ value: o, label: o }))));
   addFilter("Produto", multiSelect("product", "Todos", PRODUCTS.map((p) => ({ value: p, label: p }))));
@@ -371,7 +455,7 @@ function render() {
   const fatHead = el("div", "panel__header", `<div><p class="eyebrow">Faturamento</p><h2>Receita ganha por mês</h2></div>`);
   fatHead.appendChild(chips(WINDOW_LABELS, f.mw, "mw"));
   fatPanel.appendChild(fatHead);
-  fatPanel.insertAdjacentHTML("beforeend", lineChart(rev.months, [{ name: "Faturamento", color: "#ffb800", values: rev.values }], { currency: true, area: true, avgLine: true }));
+  fatPanel.insertAdjacentHTML("beforeend", barChart(rev.months, rev.values, { avgLine: true }));
   tabResultado.appendChild(kpiGrid);
   tabResultado.appendChild(fatPanel);
 
@@ -549,8 +633,9 @@ function render() {
     tabAtividade.appendChild(el("section", "panel", `<div class="panel__header"><div><p class="eyebrow">Time comercial</p><h2>Mensagens por consultor</h2></div></div><p class="empty-hint">Sem dados de mensagens no período selecionado. ${ACTIVITY.length ? "Tente um período mais amplo." : "O fluxo de atividade ainda não foi executado."}</p>`));
   }
 
-  shell.appendChild(el("div", "foot", `<b>1</b><i>Nort</i> Digital • Tecnologia & Inteligência • Painel gerado a partir do Kommo`));
+  shell.appendChild(el("div", "foot", `<b>1</b><i>Nort</i> • Marketing e Vendas`));
 
   root.appendChild(shell);
   wireChartTooltips();
+  wireBarTooltips();
 }

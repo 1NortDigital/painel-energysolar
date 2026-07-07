@@ -5,8 +5,8 @@
 
 export const CLIENT = {
   name: "Energy Solar RJ",
-  eyebrow: "Painel comercial • 1Nort",
-  subtitle: "Raio-X do funil solar, direto do Kommo.",
+  eyebrow: "",
+  subtitle: "",
   crmLeadUrl: (id) => `https://energysolar.kommo.com/leads/detail/${id}`,
 };
 

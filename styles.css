@@ -49,9 +49,8 @@ a { color: inherit; }
 /* topbar / logo */
 .topbar { display: flex; justify-content: space-between; align-items: center; padding-bottom: 4px; }
 .brand { display: flex; align-items: center; gap: 12px; }
-.brand__mark { font-family: var(--font-display); font-weight: 700; font-size: 22px; letter-spacing: -0.02em; }
-.brand__mark b { color: var(--amber); }
-.brand__mark i { font-style: normal; color: #fff; }
+.brand__mark { display: inline-flex; align-items: center; }
+.brand__mark img { display: block; width: 34px; height: 34px; object-fit: contain; }
 .brand__divider { width: 1px; height: 26px; background: var(--line-strong); }
 .brand__client { display: flex; flex-direction: column; }
 .brand__client span { font-size: 10.5px; color: var(--muted-2); text-transform: uppercase; letter-spacing: 0.08em; }
@@ -321,3 +320,9 @@ a { color: inherit; }
   .fn-grid { grid-template-columns: repeat(3, 1fr); row-gap: 20px; }
   .fn-col--won { border-left: none; }
 }
+
+/* gráfico de barras (faturamento) */
+.linechart__plot--bars .bc-hit { cursor: pointer; }
+.linechart__plot--bars .bc-rect { transition: fill .15s, opacity .15s; }
+.linechart__plot--bars:hover .bc-rect { opacity: .55; }
+.linechart__plot--bars .bc-bar:hover .bc-rect { opacity: 1; fill: #ffc93a; }
