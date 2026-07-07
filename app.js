@@ -152,10 +152,10 @@ export function evolutionByMonth(all, win) {
   return { months: keys, leads, qualified: quals, proposals: props, closes };
 }
 
-export function forecast(all, origin) {
+export function forecast(all) {
   const now = new Date();
   const from = new Date(now.getFullYear(), now.getMonth() - 3, 1).toISOString().slice(0, 10);
-  const base = all.filter((l) => dstr(l.createdAt) >= from && (origin === "all" || l.origin === origin));
+  const base = all.filter((l) => dstr(l.createdAt) >= from);
   const won = base.filter((l) => l.status === "won");
   const proposals = base.filter(isProposal).length;
   const revenue = won.reduce((s, l) => s + (l.value ?? 0), 0);

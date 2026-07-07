@@ -6,7 +6,7 @@ import {
   applyFilter, applyDimFilters, previousRange, computeKpis, revenueByMonth, evolutionByMonth,
   forecast, heatmap, stagnation, distribution, campaigns, pipelineSummary,
   byConsultant, lossReasons, geography, funnelStages,
-} from "./app.js";
+} from "./app.js?v=7";
 
 const brl = (n) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
 const pct = (n) => `${n.toFixed(1).replace(".", ",")}%`;
@@ -370,7 +370,7 @@ function render() {
   const k = computeKpis(scope, prev);
   const rev = revenueByMonth(dimLeads, f.mw);
   const evo = evolutionByMonth(dimLeads, f.ew);
-  const fc = forecast(dimLeads, f.fo);
+  const fc = forecast(dimLeads);
   const hm = heatmap(scope);
   const stag = stagnation(dimLeads, f.rf);
   const camps = campaigns(scope);
@@ -478,7 +478,6 @@ function render() {
 
   const fcPanel = el("article", "panel");
   const fcHead = el("div", "panel__header", `<div><p class="eyebrow">Previsibilidade</p><h2>Projeção 3 meses</h2></div>`);
-  fcHead.appendChild(selectEl(ORIGINS.slice(0, 4), f.fo, "fo", "Todas as origens"));
   fcPanel.appendChild(fcHead);
   fcPanel.insertAdjacentHTML("beforeend", `
     <p class="forecast__basis">Base: últimos 3 meses · orç. ${pct(fc.orcRate)} · fech. ${pct(fc.closeRate)}</p>
