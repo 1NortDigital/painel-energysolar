@@ -5,7 +5,7 @@ import {
   CLIENT, PIPELINES, ORIGINS, PRODUCTS, WINDOW_LABELS, PROFILE_FIELDS,
   applyFilter, previousRange, computeKpis, revenueByMonth, evolutionByMonth,
   forecast, heatmap, stagnation, distribution, campaigns, pipelineSummary,
-  byConsultant, lossReasons, geography,
+  byConsultant, lossReasons, geography, funnelStages,
 } from "./app.js";
 
 const brl = (n) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
@@ -224,6 +224,49 @@ function hbars(rows, opts = {}) {
   ).join("") + `</div>`;
 }
 
+// Painel do funil comercial — a estrela do topo
+function funnelPanel(fn) {
+  const maxN = fn.stages[0].n || 1;
+  const colorFor = (i, isWon, n) => {
+    if (isWon) return n > 0 ? "#35c98a" : "#ff6b6b";
+    const shades = ["#ffb800", "#ffb800", "#e5a520", "#cc9020", "#a8781c", "#8a5c17"];
+    return shades[i] || "#8a5c17";
+  };
+  const deltaTag = (d) => {
+    if (d === 0) return `<span class="fn-delta fn-delta--flat">→ 0%</span>`;
+    const up = d > 0;
+    return `<span class="fn-delta fn-delta--${up ? "up" : "down"}">${up ? "▲" : "▼"} ${Math.abs(d)}%</span>`;
+  };
+  const cols = fn.stages.map((s, i) => {
+    const isWon = s.key === "won";
+    const barW = Math.max(12, Math.round((s.n / maxN) * 100));
+    const color = colorFor(i, isWon, s.n);
+    const passLine = i > 0 && s.passFromPrev != null ? `<div class="fn-pass">${s.passFromPrev}% da etapa</div>` : "";
+    const arrow = i < fn.stages.length - 1 ? `<div class="fn-arrow">›</div>` : "";
+    return `<div class="fn-col ${isWon ? "fn-col--won" : ""}">
+      <div class="fn-bar" style="width:${barW}%;background:${color}"></div>
+      <div class="fn-num" style="${isWon ? `color:${color}` : ""}">${s.n}</div>
+      <div class="fn-label">${s.label}</div>
+      ${deltaTag(s.deltaPct)}
+      ${passLine}
+      ${arrow}
+    </div>`;
+  }).join("");
+  return `<section class="funnel">
+    <div class="funnel__head"><div><p class="eyebrow">Funil comercial · ${periodLabel()}</p><h2>Do lead ao fechamento</h2></div></div>
+    <div class="fn-grid">${cols}</div>
+    <div class="fn-foot">
+      <div class="fn-foot__item"><span class="fn-foot__label">Conversão total</span><strong style="color:var(--amber)">${fn.totalConv.toFixed(1).replace(".", ",")}%</strong><small>lead → fechamento</small></div>
+      <div class="fn-foot__item"><span class="fn-foot__label">Maior gargalo</span><strong>${fn.bottleneck.label || "—"}</strong><small class="fn-foot__warn">${fn.bottleneck.pass <= 100 ? `só ${fn.bottleneck.pass}% passam` : "sem dados"}</small></div>
+      <div class="fn-foot__item"><span class="fn-foot__label">Receita ganha</span><strong>${brl(fn.revenue)}</strong><small>no período</small></div>
+    </div>
+  </section>`;
+}
+function periodLabel() {
+  const map = { today: "hoje", "7d": "últimos 7 dias", "30d": "últimos 30 dias", month: "neste mês", all: "todo período", custom: "período personalizado" };
+  return map[state.datePreset] || "período";
+}
+
 const delta = (v, unit) => {
   const cls = v === 0 ? "delta--flat" : v > 0 ? "delta--up" : "delta--down";
   const arrow = v === 0 ? "→" : v > 0 ? "▲" : "▼";
@@ -282,20 +325,24 @@ function render() {
   shell.appendChild(filters);
   shell.appendChild(el("p", "compare-note", `Variações comparadas ao período anterior de mesmo tamanho (${pr.from} a ${pr.to}).`));
 
-  // KPIs
-  shell.appendChild(el("section", "metrics-grid metrics-grid--six", `
+  // ===== FUNIL — a estrela do topo =====
+  const fn = funnelStages(scope, prev);
+  shell.insertAdjacentHTML("beforeend", funnelPanel(fn));
+
+  // value strip (logo abaixo do funil)
+  shell.appendChild(el("section", "value-strip", `
+    <article class="value-card value-card--won"><span class="value-card__label">Receita ganha</span><strong>${brl(k.wonValue)}</strong><div class="value-card__foot"><span>${k.wonCount} fechados</span><span>Ticket ${brl(k.wonTicket)}</span></div></article>
+    <article class="value-card value-card--open"><span class="value-card__label">Valor em aberto</span><strong>${brl(k.openValue)}</strong><div class="value-card__foot"><span>em andamento</span><span>Ticket ${brl(k.openTicket)}</span></div></article>
+    <article class="value-card value-card--lost"><span class="value-card__label">Negócios perdidos</span><strong>${k.lostCount}</strong><div class="value-card__foot"><span>no recorte</span></div></article>`));
+
+  // KPIs detalhados — descem para a aba Resultado
+  const kpiGrid = el("section", "metrics-grid metrics-grid--six", `
     <article class="metric-card"><span class="metric-card__label">Leads</span><strong class="metric-card__value">${k.leads}</strong><span class="metric-card__helper">${delta(k.delta.leads, "pct")} ${k.openCount} abertos</span></article>
     <article class="metric-card metric-card--teal"><span class="metric-card__label">Leads qualificados</span><strong class="metric-card__value">${pct(k.qualRate)}</strong><span class="metric-card__helper">${k.qualified} qualificados</span></article>
     <article class="metric-card metric-card--teal"><span class="metric-card__label">Orçamentos enviados</span><strong class="metric-card__value">${pct(k.orcRate)}</strong><span class="metric-card__helper">${delta(k.delta.orc, "pp")} ${k.proposals} propostas</span></article>
     <article class="metric-card"><span class="metric-card__label">Taxa de visita</span><strong class="metric-card__value">${pct(k.visitRate)}</strong><span class="metric-card__helper">${delta(k.delta.visit, "pp")} ${k.visits} visitas</span></article>
     <article class="metric-card metric-card--blue"><span class="metric-card__label">Taxa de fechamento</span><strong class="metric-card__value">${pct(k.closeRate)}</strong><span class="metric-card__helper">${delta(k.delta.close, "pp")} ${k.wonCount} ganhos</span></article>
-    <article class="metric-card metric-card--rose"><span class="metric-card__label">Ciclo médio (ganho)</span><strong class="metric-card__value">${k.avgCycle} dias</strong><span class="metric-card__helper">Entrada → ganho • ${k.wonCount} fechados</span></article>`));
-
-  // value strip
-  shell.appendChild(el("section", "value-strip", `
-    <article class="value-card value-card--won"><span class="value-card__label">Receita ganha</span><strong>${brl(k.wonValue)}</strong><div class="value-card__foot"><span>${k.wonCount} fechados</span><span>Ticket ${brl(k.wonTicket)}</span></div></article>
-    <article class="value-card value-card--open"><span class="value-card__label">Valor em aberto</span><strong>${brl(k.openValue)}</strong><div class="value-card__foot"><span>em andamento</span><span>Ticket ${brl(k.openTicket)}</span></div></article>
-    <article class="value-card value-card--lost"><span class="value-card__label">Negócios perdidos</span><strong>${k.lostCount}</strong><div class="value-card__foot"><span>no recorte</span></div></article>`));
+    <article class="metric-card metric-card--rose"><span class="metric-card__label">Ciclo médio (ganho)</span><strong class="metric-card__value">${k.avgCycle} dias</strong><span class="metric-card__helper">Entrada → ganho • ${k.wonCount} fechados</span></article>`);
 
   // ===== ABAS =====
   const TABS = [
@@ -325,6 +372,7 @@ function render() {
   fatHead.appendChild(chips(WINDOW_LABELS, f.mw, "mw"));
   fatPanel.appendChild(fatHead);
   fatPanel.insertAdjacentHTML("beforeend", lineChart(rev.months, [{ name: "Faturamento", color: "#ffb800", values: rev.values }], { currency: true, area: true, avgLine: true }));
+  tabResultado.appendChild(kpiGrid);
   tabResultado.appendChild(fatPanel);
 
   // evolução + forecast

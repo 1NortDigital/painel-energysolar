@@ -293,3 +293,31 @@ a { color: inherit; }
 .tab-panel { display: flex; flex-direction: column; gap: 20px; animation: fadeIn .2s ease; }
 .tab-panel--hidden { display: none; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+/* ===== FUNIL COMERCIAL (estrela do topo) ===== */
+.funnel { background: #111214; border: 1px solid rgba(255,255,255,.06); border-radius: 18px; padding: 26px 24px; margin-top: 4px; }
+.funnel__head { margin-bottom: 22px; }
+.funnel__head .eyebrow { margin-bottom: 3px; }
+.funnel__head h2 { font-family: var(--font-display); font-size: 19px; font-weight: 600; margin: 0; }
+.fn-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 0; }
+.fn-col { position: relative; padding: 0 10px 0 4px; }
+.fn-col--won { border-left: 1px solid rgba(255,184,0,.15); padding-left: 10px; }
+.fn-bar { height: 6px; border-radius: 99px; margin-bottom: 16px; min-width: 12px; transition: width .4s ease; }
+.fn-num { font-family: var(--font-display); font-size: 30px; font-weight: 600; line-height: 1; }
+.fn-label { font-size: 12px; color: var(--muted); margin: 5px 0 8px; }
+.fn-delta { font-size: 11px; font-weight: 600; }
+.fn-delta--up { color: #35c98a; }
+.fn-delta--down { color: #ff6b6b; }
+.fn-delta--flat { color: #6b7178; }
+.fn-pass { font-size: 10px; color: #5f6469; margin-top: 3px; }
+.fn-arrow { position: absolute; top: -2px; right: 2px; color: #3a3d42; font-size: 18px; line-height: 1; }
+.fn-foot { display: flex; gap: 14px; margin-top: 24px; padding-top: 18px; border-top: 1px solid rgba(255,255,255,.07); flex-wrap: wrap; }
+.fn-foot__item { flex: 1; min-width: 130px; }
+.fn-foot__item strong { display: block; font-family: var(--font-display); font-size: 19px; font-weight: 600; margin: 3px 0 2px; }
+.fn-foot__item small { font-size: 11px; color: #5f6469; }
+.fn-foot__label { font-size: 10.5px; color: #6b7178; text-transform: uppercase; letter-spacing: .05em; }
+.fn-foot__warn { color: #ff6b6b !important; }
+@media (max-width: 760px) {
+  .fn-grid { grid-template-columns: repeat(3, 1fr); row-gap: 20px; }
+  .fn-col--won { border-left: none; }
+}
