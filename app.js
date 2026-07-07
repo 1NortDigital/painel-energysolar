@@ -61,6 +61,18 @@ export function applyFilter(leads, f) {
   });
 }
 
+// aplica só os filtros de dimensão (origem, produto, pipeline), SEM a data —
+// usado pelos gráficos que têm janela temporal própria (faturamento, evolução,
+// forecast, stagnation), pra que respeitem origem/produto sem perder os meses.
+export function applyDimFilters(leads, f) {
+  return leads.filter((l) => {
+    if (f.pipeline.length && !f.pipeline.includes(l.pipelineId)) return false;
+    if (f.origin.length && !f.origin.includes(l.origin ?? "Sem origem")) return false;
+    if (f.product.length && !f.product.includes(l.product ?? "Sem produto")) return false;
+    return true;
+  });
+}
+
 export function previousRange(from, to) {
   const span = Math.max(1, days(from, to) + 1);
   const prevTo = new Date(+new Date(from) - 86400000);

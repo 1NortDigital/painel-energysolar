@@ -3,7 +3,7 @@
 // ============================================================
 import {
   CLIENT, PIPELINES, ORIGINS, PRODUCTS, WINDOW_LABELS, PROFILE_FIELDS,
-  applyFilter, previousRange, computeKpis, revenueByMonth, evolutionByMonth,
+  applyFilter, applyDimFilters, previousRange, computeKpis, revenueByMonth, evolutionByMonth,
   forecast, heatmap, stagnation, distribution, campaigns, pipelineSummary,
   byConsultant, lossReasons, geography, funnelStages,
 } from "./app.js";
@@ -362,14 +362,17 @@ function render() {
   root.innerHTML = "";
   const f = state;
   const scope = applyFilter(LEADS, f);
+  // leads filtrados por origem/produto/pipeline (mas SEM data) — para os
+  // gráficos que têm janela temporal própria respeitarem esses filtros
+  const dimLeads = applyDimFilters(LEADS, f);
   const pr = previousRange(f.from, f.to);
   const prev = applyFilter(LEADS, { ...f, from: pr.from, to: pr.to });
   const k = computeKpis(scope, prev);
-  const rev = revenueByMonth(LEADS, f.mw);
-  const evo = evolutionByMonth(LEADS, f.ew);
-  const fc = forecast(LEADS, f.fo);
+  const rev = revenueByMonth(dimLeads, f.mw);
+  const evo = evolutionByMonth(dimLeads, f.ew);
+  const fc = forecast(dimLeads, f.fo);
   const hm = heatmap(scope);
-  const stag = stagnation(LEADS, f.rf);
+  const stag = stagnation(dimLeads, f.rf);
   const camps = campaigns(scope);
   const consult = byConsultant(scope);
   const losses = lossReasons(scope);
