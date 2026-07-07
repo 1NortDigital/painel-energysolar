@@ -284,3 +284,12 @@ a { color: inherit; }
 .loss-donut svg:hover .donut-seg { opacity: 0.45; }
 .loss-donut svg .donut-seg:hover { opacity: 1; }
 .hbar, .distro__row { cursor: default; }
+
+/* ===== ABAS ===== */
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-top: 8px; padding-bottom: 0; }
+.tab { background: transparent; border: none; border-bottom: 2px solid transparent; color: var(--muted); font-family: var(--font-display); font-size: 15px; font-weight: 500; padding: 12px 20px; cursor: pointer; margin-bottom: -1px; transition: color .15s, border-color .15s; }
+.tab:hover { color: var(--ink); }
+.tab--active { color: var(--amber); border-bottom-color: var(--amber); }
+.tab-panel { display: flex; flex-direction: column; gap: 20px; animation: fadeIn .2s ease; }
+.tab-panel--hidden { display: none; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }

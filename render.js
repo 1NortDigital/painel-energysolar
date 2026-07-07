@@ -15,6 +15,7 @@ const DAYS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 const PAGE_SIZE = 25;
 
 let LEADS = [];
+let ACTIVITY = [];
 function monthStart() {
   const d = new Date();
   return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10);
@@ -27,7 +28,7 @@ function daysAgoISO(n) {
 }
 
 const state = {
-  from: monthStart(), to: todayISO(), datePreset: "month",
+  from: monthStart(), to: todayISO(), datePreset: "month", tab: "resultado",
   pipeline: [], origin: [], product: [],
   mw: "6m", ew: "6m", fo: "all", rf: "Pré-Qualificação",
   leStatus: "all", leSearch: "", lePage: 1,
@@ -37,6 +38,11 @@ const state = {
 export async function boot() {
   const res = await fetch("./leads.json");
   LEADS = await res.json();
+  // activity.json é opcional — se não existir, o painel de atividade mostra aviso
+  try {
+    const ares = await fetch("./activity.json");
+    if (ares.ok) ACTIVITY = await ares.json();
+  } catch (e) { ACTIVITY = []; }
   render();
 }
 
@@ -291,13 +297,35 @@ function render() {
     <article class="value-card value-card--open"><span class="value-card__label">Valor em aberto</span><strong>${brl(k.openValue)}</strong><div class="value-card__foot"><span>em andamento</span><span>Ticket ${brl(k.openTicket)}</span></div></article>
     <article class="value-card value-card--lost"><span class="value-card__label">Negócios perdidos</span><strong>${k.lostCount}</strong><div class="value-card__foot"><span>no recorte</span></div></article>`));
 
+  // ===== ABAS =====
+  const TABS = [
+    { k: "resultado", label: "Resultado", icon: "📊" },
+    { k: "atividade", label: "Atividade", icon: "⚡" },
+    { k: "aquisicao", label: "Aquisição", icon: "🎯" },
+  ];
+  const tabNav = el("nav", "tabs");
+  TABS.forEach((t) => {
+    const b = el("button", `tab ${state.tab === t.k ? "tab--active" : ""}`, `${t.label}`);
+    b.addEventListener("click", () => set({ tab: t.k }));
+    tabNav.appendChild(b);
+  });
+  shell.appendChild(tabNav);
+
+  // containers das 3 abas — só o ativo é exibido
+  const tabResultado = el("div", `tab-panel ${state.tab === "resultado" ? "" : "tab-panel--hidden"}`);
+  const tabAtividade = el("div", `tab-panel ${state.tab === "atividade" ? "" : "tab-panel--hidden"}`);
+  const tabAquisicao = el("div", `tab-panel ${state.tab === "aquisicao" ? "" : "tab-panel--hidden"}`);
+  shell.appendChild(tabResultado);
+  shell.appendChild(tabAtividade);
+  shell.appendChild(tabAquisicao);
+
   // faturamento
   const fatPanel = el("section", "panel");
   const fatHead = el("div", "panel__header", `<div><p class="eyebrow">Faturamento</p><h2>Receita ganha por mês</h2></div>`);
   fatHead.appendChild(chips(WINDOW_LABELS, f.mw, "mw"));
   fatPanel.appendChild(fatHead);
   fatPanel.insertAdjacentHTML("beforeend", lineChart(rev.months, [{ name: "Faturamento", color: "#ffb800", values: rev.values }], { currency: true, area: true, avgLine: true }));
-  shell.appendChild(fatPanel);
+  tabResultado.appendChild(fatPanel);
 
   // evolução + forecast
   const twoCol = el("section", "two-col");
@@ -327,7 +355,7 @@ function render() {
     </div>
     <div class="forecast__total"><span>Projeção 3 meses (mesmo ritmo)</span><strong>${fc.proj3Sales} vendas • ${brl(fc.proj3Rev)}</strong></div>`);
   twoCol.appendChild(fcPanel);
-  shell.appendChild(twoCol);
+  tabResultado.appendChild(twoCol);
 
   // campanhas
   const campPanel = el("section", "panel", `<div class="panel__header"><div><p class="eyebrow">Aquisição paga</p><h2>Desempenho por campanha (UTM)</h2></div><p class="panel__hint">Qual campanha traz lead que vira proposta e venda.</p></div>`);
@@ -335,7 +363,7 @@ function render() {
   ctable.innerHTML = `<div class="ctable__head"><span>Campanha</span><span>Leads</span><span>Propostas</span><span>Ganhos</span><span>Orçamento</span><span>Fechamento</span></div>` +
     camps.map((c) => `<div class="ctable__row"><span class="ctable__name">${c.name}</span><span>${c.leads}</span><span>${c.proposals}</span><span>${c.won}</span><span class="ctable__rate">${pct(c.orcRate)}</span><span class="ctable__rate">${pct(c.closeRate)}</span></div>`).join("");
   campPanel.appendChild(ctable);
-  shell.appendChild(campPanel);
+  tabAquisicao.appendChild(campPanel);
 
   // perfil
   const profPanel = el("section", "panel", `<div class="panel__header"><div><p class="eyebrow">Perfil do cliente</p><h2>Quem são os leads</h2></div><p class="panel__hint">Distribuição dos campos comerciais (entre leads preenchidos).</p></div>`);
@@ -348,7 +376,7 @@ function render() {
     pgrid.insertAdjacentHTML("beforeend", `<article class="distro"><div class="distro__head"><strong>${PROFILE_FIELDS[key]}</strong><span>${d.pctFilled.toFixed(1)}% preenchido</span></div><div>${rows}</div></article>`);
   });
   profPanel.appendChild(pgrid);
-  shell.appendChild(profPanel);
+  tabAquisicao.appendChild(profPanel);
 
   // pipelines
   // consultores — 3 rankings
@@ -359,7 +387,7 @@ function render() {
     <div class="rank-block"><h3 class="rank-block__title">Propostas apresentadas</h3>${hbars(consult.byProposals.slice(0, 8), { valueKey: "proposals", labelKey: "name", color: "teal" })}</div>
     <div class="rank-block"><h3 class="rank-block__title">Vendas em R$</h3>${hbars(consult.byRevenue.slice(0, 8), { valueKey: "revenue", labelKey: "name", color: "blue", format: (v) => brl(v) })}</div>`;
   consPanel.appendChild(consGrid);
-  shell.appendChild(consPanel);
+  tabResultado.appendChild(consPanel);
 
   // motivos das perdas + geografia lado a lado
   const lossGeoRow = el("section", "two-col");
@@ -374,7 +402,7 @@ function render() {
   const geoPanel = el("article", "panel", `<div class="panel__header"><div><p class="eyebrow">Geografia</p><h2>Onde estão os clientes</h2></div><p class="panel__hint">${geo.distinct} localidades distintas.</p></div>`);
   geoPanel.insertAdjacentHTML("beforeend", hbars(geo.rows, { valueKey: "n", labelKey: "label", color: "amber" }));
   lossGeoRow.appendChild(geoPanel);
-  shell.appendChild(lossGeoRow);
+  tabResultado.appendChild(lossGeoRow);
 
   // heatmap
   const hmPanel = el("section", "panel", `<div class="panel__header"><div><p class="eyebrow">Atendimento</p><h2>Quando os leads chegam</h2></div><p class="panel__hint">Dia × hora. Mais escuro = mais leads. Orienta a escala.</p></div>`);
@@ -387,7 +415,7 @@ function render() {
   const bestDay = hm.dayTotals.indexOf(Math.max(...hm.dayTotals));
   hmHtml += `<div class="heatmap__footer"><div class="heatmap__legend"><span>Menos</span>${[0.15, 0.35, 0.55, 0.75, 0.95].map((o) => `<i style="background:rgba(255,184,0,${o})"></i>`).join("")}<span>Mais</span></div><div class="heatmap__highlights"><div class="hl-chip"><span class="hl-chip__label">🔥 Pico</span><strong>${DAYS[hm.peak.day]} ${hm.peak.hour}h</strong><span class="hl-chip__sub">${hm.peak.n} leads</span></div><div class="hl-chip"><span class="hl-chip__label">Melhor dia</span><strong>${DAYS[bestDay]}</strong><span class="hl-chip__sub">${hm.dayTotals[bestDay]} leads</span></div></div></div></div>`;
   hmPanel.insertAdjacentHTML("beforeend", hmHtml);
-  shell.appendChild(hmPanel);
+  tabAtividade.appendChild(hmPanel);
 
   // quem agir
   const actCol = el("section", "two-col two-col--wide");
@@ -400,7 +428,7 @@ function render() {
   const priPanel = el("article", "panel", `<div class="panel__header"><div><p class="eyebrow">Prioridade</p><h2>Mais tempo sem mexer</h2></div></div>`);
   priPanel.insertAdjacentHTML("beforeend", `<div class="rep-list">${stag.top.map(({ lead, d }) => `<div class="rep-row"><div><strong>${lead.name}</strong></div><strong class="rep-row__days">${d}d</strong></div>`).join("")}</div>`);
   actCol.appendChild(priPanel);
-  shell.appendChild(actCol);
+  tabAtividade.appendChild(actCol);
 
   // explorador
   const exp = LEADS.filter((l) => {
@@ -443,7 +471,35 @@ function render() {
   const nextBtn = el("button", null, "Próxima →"); nextBtn.disabled = page >= totalPages; nextBtn.addEventListener("click", () => set({ lePage: page + 1 }));
   pager.appendChild(prevBtn); pager.appendChild(el("span", "le-pager__info", `Página ${page} de ${totalPages}`)); pager.appendChild(nextBtn);
   expPanel.appendChild(pager);
-  shell.appendChild(expPanel);
+  tabAquisicao.appendChild(expPanel);
+
+  // ===== ABA ATIVIDADE: mensagens por consultor (Robô incluído) =====
+  const actInPeriod = ACTIVITY.filter((a) => a.day >= f.from && a.day <= f.to);
+  if (actInPeriod.length) {
+    const byC = new Map();
+    actInPeriod.forEach((a) => {
+      if (!byC.has(a.consultor)) byC.set(a.consultor, { name: a.consultor, messages: 0, conversations: 0 });
+      const r = byC.get(a.consultor);
+      r.messages += a.messages || 0;
+      r.conversations += a.conversations || 0;
+    });
+    const rows = [...byC.values()];
+    const msgRank = [...rows].map((r) => ({ name: r.name, n: r.messages })).sort((a, b) => b.n - a.n);
+    const convRank = [...rows].map((r) => ({ name: r.name, n: r.conversations })).sort((a, b) => b.n - a.n);
+    const totalMsg = rows.reduce((s, r) => s + r.messages, 0);
+    const roboMsg = byC.get("Robô")?.messages || 0;
+    const roboPct = totalMsg ? Math.round((roboMsg / totalMsg) * 100) : 0;
+
+    const actPanel = el("section", "panel", `<div class="panel__header"><div><p class="eyebrow">Time comercial</p><h2>Mensagens enviadas por consultor</h2></div><p class="panel__hint">${roboPct}% das mensagens saíram pelo Robô. ${roboPct >= 95 ? "A equipe quase não atende pela plataforma." : ""}</p></div>`);
+    const actGrid = el("div", "two-col");
+    actGrid.innerHTML = `
+      <div class="rank-block"><h3 class="rank-block__title">Mensagens enviadas</h3>${hbars(msgRank.slice(0, 10), { valueKey: "n", labelKey: "name", color: "teal" })}</div>
+      <div class="rank-block"><h3 class="rank-block__title">Conversas processadas</h3>${hbars(convRank.slice(0, 10), { valueKey: "n", labelKey: "name", color: "amber" })}</div>`;
+    actPanel.appendChild(actGrid);
+    tabAtividade.appendChild(actPanel);
+  } else {
+    tabAtividade.appendChild(el("section", "panel", `<div class="panel__header"><div><p class="eyebrow">Time comercial</p><h2>Mensagens por consultor</h2></div></div><p class="empty-hint">Sem dados de mensagens no período selecionado. ${ACTIVITY.length ? "Tente um período mais amplo." : "O fluxo de atividade ainda não foi executado."}</p>`));
+  }
 
   shell.appendChild(el("div", "foot", `<b>1</b><i>Nort</i> Digital • Tecnologia & Inteligência • Painel gerado a partir do Kommo`));
 

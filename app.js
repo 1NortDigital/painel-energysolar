@@ -264,4 +264,38 @@ export function geography(scope, limit = 12) {
   return { rows, filled, distinct: map.size };
 }
 
+// Atividade por consultor: mensagens, conversas, tentativas e ligações.
+// Depende de campos de atividade nos leads (activity.*). Enquanto o fluxo
+// não trouxer esses dados, retorna hasData:false e o painel mostra aviso.
+export function activityByConsultant(scope) {
+  const hasAny = scope.some((l) => l.activity && (
+    l.activity.messages || l.activity.conversations ||
+    l.activity.callAttempts || l.activity.callsMade
+  ));
+  if (!hasAny) return { hasData: false };
+
+  const map = new Map();
+  const bump = (name, key, v) => {
+    if (!map.has(name)) map.set(name, { name, messages: 0, conversations: 0, callAttempts: 0, callsMade: 0 });
+    map.get(name)[key] += v || 0;
+  };
+  scope.forEach((l) => {
+    const c = l.consultor || "Sem consultor";
+    const a = l.activity || {};
+    bump(c, "messages", a.messages);
+    bump(c, "conversations", a.conversations);
+    bump(c, "callAttempts", a.callAttempts);
+    bump(c, "callsMade", a.callsMade);
+  });
+  const rows = [...map.values()];
+  const rank = (key) => [...rows].map((r) => ({ name: r.name, n: r[key] })).sort((a, b) => b.n - a.n);
+  return {
+    hasData: true,
+    messages: rank("messages"),
+    conversations: rank("conversations"),
+    callAttempts: rank("callAttempts"),
+    callsMade: rank("callsMade"),
+  };
+}
+
 export { pipeById };
