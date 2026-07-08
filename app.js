@@ -357,4 +357,19 @@ export function funnelStages(scope, prev) {
   return { stages, totalConv, bottleneck: worst, revenue };
 }
 
+// Motivos de descarte: conta leads que estão nas etapas de descarte,
+// no período/origem/produto filtrados (mesma lógica das outras etapas).
+export function discardBreakdown(scope) {
+  const STAGES = [
+    { id: 91219151, label: "Lead Ruim" },
+    { id: 92779055, label: "Fora da localização" },
+  ];
+  const rows = STAGES.map((s) => ({
+    label: s.label,
+    n: scope.filter((l) => l.stageId === s.id).length,
+  })).sort((a, b) => b.n - a.n);
+  const total = rows.reduce((s, r) => s + r.n, 0);
+  return { rows, total };
+}
+
 export { pipeById };

@@ -5,8 +5,8 @@ import {
   CLIENT, PIPELINES, ORIGINS, PRODUCTS, WINDOW_LABELS, PROFILE_FIELDS,
   applyFilter, applyDimFilters, previousRange, computeKpis, revenueByMonth, evolutionByMonth,
   forecast, heatmap, stagnation, distribution, campaigns, pipelineSummary,
-  byConsultant, lossReasons, geography, funnelStages,
-} from "./app.js?v=7";
+  byConsultant, lossReasons, geography, funnelStages, discardBreakdown,
+} from "./app.js?v=9";
 
 const brl = (n) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
 const pct = (n) => `${n.toFixed(1).replace(".", ",")}%`;
@@ -16,6 +16,7 @@ const PAGE_SIZE = 25;
 
 let LEADS = [];
 let ACTIVITY = [];
+let SYNC_LABEL = "carregando…";
 function monthStart() {
   const d = new Date();
   return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10);
@@ -53,6 +54,28 @@ export async function boot() {
     if (ares.ok) ACTIVITY = await ares.json();
   } catch (e) { ACTIVITY = []; }
   render();
+  fetchSyncTime();
+}
+
+// busca a data do último commit do leads.json via API pública do GitHub
+async function fetchSyncTime() {
+  const elSync = document.getElementById("sync-time");
+  if (!elSync) return;
+  try {
+    const url = "https://api.github.com/repos/1NortDigital/painel-energysolar/commits?path=leads.json&page=1&per_page=1";
+    const r = await fetch(url, { headers: { Accept: "application/vnd.github+json" } });
+    if (!r.ok) throw new Error("github");
+    const data = await r.json();
+    const iso = data?.[0]?.commit?.committer?.date || data?.[0]?.commit?.author?.date;
+    if (!iso) throw new Error("no date");
+    const d = new Date(iso);
+    const fmt = d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+    SYNC_LABEL = fmt;
+    elSync.textContent = fmt;
+  } catch (e) {
+    SYNC_LABEL = "—";
+    elSync.textContent = "—";
+  }
 }
 
 function set(patch) { Object.assign(state, patch); render(); }
@@ -85,12 +108,14 @@ function barChart(months, values, opts = {}) {
   });
   // barras
   values.forEach((v, i) => {
-    const bx = x(i), by = y(v), bh = PT + plotH - by;
+    const bx = x(i);
+    let bh = v > 0 ? Math.max((plotH * v) / max, 3) : 0; // altura mínima 3px se houver valor
+    const by = PT + plotH - bh;
     const isMax = v === rawMax && v > 0;
     const label = `${fmtM(months[i])}: ${fmtFull(v)}`;
     svg += `<g class="bc-bar" data-tip="${encodeURIComponent(label)}" data-cx="${bx + bw / 2}">`;
     // barra com cantos superiores arredondados (via rect + rx pequeno)
-    svg += `<rect x="${bx}" y="${by}" width="${bw}" height="${Math.max(bh, 0)}" rx="3" fill="${isMax ? "#ffc93a" : "#ffb800"}" class="bc-rect"/>`;
+    svg += `<rect x="${bx}" y="${by}" width="${bw}" height="${bh}" rx="3" fill="${isMax ? "#ffc93a" : "#ffb800"}" class="bc-rect"/>`;
     // área de hover cobrindo a coluna inteira (facilita passar o mouse)
     svg += `<rect x="${bx}" y="${PT}" width="${bw}" height="${plotH}" fill="transparent" class="bc-hit"/>`;
     svg += `</g>`;
@@ -389,7 +414,7 @@ function render() {
       <span class="brand__divider"></span>
       <span class="brand__client"><span>Cliente</span><strong>${CLIENT.name}</strong></span>
     </div>
-    <div class="topbar__sync">Última sincronização<strong>02/07/2026, 18:00</strong></div>`));
+    <div class="topbar__sync">Última sincronização<strong id="sync-time">${SYNC_LABEL}</strong></div>`));
 
   // hero
   shell.appendChild(el("section", "hero", `
@@ -537,6 +562,12 @@ function render() {
   geoPanel.insertAdjacentHTML("beforeend", hbars(geo.rows, { valueKey: "n", labelKey: "label", color: "amber" }));
   lossGeoRow.appendChild(geoPanel);
   tabResultado.appendChild(lossGeoRow);
+
+  // painel de descarte: Lead Ruim + Fora da localização (barras)
+  const disc = discardBreakdown(scope);
+  const discPanel = el("section", "panel", `<div class="panel__header"><div><p class="eyebrow">Descarte</p><h2>Motivos de descarte</h2></div><p class="panel__hint">${disc.total} leads descartados no período.</p></div>`);
+  discPanel.insertAdjacentHTML("beforeend", hbars(disc.rows, { valueKey: "n", labelKey: "label", color: "rose" }));
+  tabResultado.appendChild(discPanel);
 
   // heatmap
   const hmPanel = el("section", "panel", `<div class="panel__header"><div><p class="eyebrow">Atendimento</p><h2>Quando os leads chegam</h2></div><p class="panel__hint">Dia × hora. Mais escuro = mais leads. Orienta a escala.</p></div>`);
